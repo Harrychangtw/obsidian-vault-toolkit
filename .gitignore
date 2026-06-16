@@ -1,0 +1,15 @@
+# Local machine config (paths + secrets) — never commit
+config.sh
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

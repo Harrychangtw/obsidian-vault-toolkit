@@ -21,23 +21,29 @@ START_TIME=$(date +%s)
 REMOTE_BASE="${RCLONE_REMOTE}:${RCLONE_BASE_PATH}"
 
 # Shared excludes applied to every transfer.
-EXCLUDES=(
-  --exclude ".git/**"
-  --exclude "node_modules/**"
-  --exclude ".next/**"
-  --exclude ".vercel/**"
-  --exclude "dist/**"
-  --exclude "build/**"
-  --exclude ".venv/**"
-  --exclude "__pycache__/**"
-  --exclude "*.pyc"
-  --exclude ".pytest_cache/**"
-  --exclude ".mypy_cache/**"
-  --exclude "*.egg-info/**"
-  --exclude ".DS_Store"
-  --exclude ".cache/**"
+# The patterns must stay quoted in the command text we send into the tmux
+# panes: those panes run zsh, whose `nomatch` aborts a whole line when an
+# unquoted glob (e.g. *.pyc) matches nothing. Literal quotes prevent globbing.
+EXCLUDE_PATTERNS=(
+  ".git/**"
+  "node_modules/**"
+  ".next/**"
+  ".vercel/**"
+  "dist/**"
+  "build/**"
+  ".venv/**"
+  "__pycache__/**"
+  "*.pyc"
+  ".pytest_cache/**"
+  ".mypy_cache/**"
+  "*.egg-info/**"
+  ".DS_Store"
+  ".cache/**"
 )
-EXCLUDE_STR="${EXCLUDES[*]}"
+EXCLUDE_STR=""
+for _pat in "${EXCLUDE_PATTERNS[@]}"; do
+  EXCLUDE_STR+=" --exclude '${_pat}'"
+done
 
 # Function to send discord notifications (no-op if webhook unset)
 send_discord_notification() {

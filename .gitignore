@@ -1,5 +1,6 @@
-# Local machine config (paths + secrets) — never commit
-config.sh
+# Local machine config (paths + secrets) — never commit.
+# Anchored to repo root so lib/config.sh (the shared loader) is still tracked.
+/config.sh
 
 # Python
 __pycache__/

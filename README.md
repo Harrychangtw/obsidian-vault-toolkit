@@ -29,10 +29,13 @@ rclone/
   backup.sh            # parallel backup of local dirs + volumes -> remote
   restore.sh           # restore local dirs from the cloud mirror (destructive)
   sync_loop.sh         # continuously mirror the current dir (home-server use)
+  ntu_kb_sync.sh       # two-way bisync of the NTU KB (for iPad annotation)
+  ntu-kb.filter.example  # copy to ntu-kb.filter: what the bisync includes
 raycast/
   photo-archival.sh    # Raycast: run archival, then author + keyword backfill
   system-backup.sh     # Raycast: kick off rclone backup
   system-restore.sh    # Raycast: kick off rclone restore
+  ntu-kb-sync.sh       # Raycast: kick off the NTU KB two-way sync
 ```
 
 ## Setup
@@ -109,6 +112,65 @@ leave it empty to disable them.
 
 > ⚠️ `restore.sh` runs `rclone sync` **onto your local folders**, which deletes
 > local files missing from the cloud mirror. Make sure that's what you want.
+
+## The NTU KB two-way sync
+
+`rclone/backup.sh` is a one-way push, so it can never bring an edit made on
+another device back home. `rclone/ntu_kb_sync.sh` adds that missing direction
+for one folder only — the knowledge base — using `rclone bisync`:
+
+```
+~/Documents/03-ntu-kb  <-->  <remote>:<base>/03-ntu-kb-live
+```
+
+The point is iPad annotation. Open that Drive folder in the Files app, mark up
+a PDF with an editor that writes **in place** (Preview on iPadOS, PDF Expert,
+Apple Markup), then run the sync and the annotated file replaces the one on the
+Mac. Note that GoodNotes, Notability and Noteshelf import PDFs into their own
+library instead of editing the file, so annotations made there never reach the
+folder — that is an architectural difference, not a setting.
+
+```bash
+bash rclone/ntu_kb_sync.sh              # normal two-way sync
+bash rclone/ntu_kb_sync.sh --dry-run    # show what would change, touch nothing
+bash rclone/ntu_kb_sync.sh --resync     # rebuild the baseline (see below)
+```
+
+What it does and does not do:
+
+- **Conflicts never lose bytes.** The newer file wins and the older one is kept
+  beside it. Note that rclone appends the suffix *after* the extension, so the
+  loser of a conflict on `paper.pdf` is `paper.pdf.conflict1` and will not open
+  on a double-click until you rename it. The script lists any such file by name
+  when it happens.
+- **Deletions do propagate**, in both directions — that is what two-way sync
+  means. A run that would delete more than `NTU_KB_MAX_DELETE` percent of one
+  side aborts instead. Keep `backup.sh` running for actual backup.
+- **It refuses rather than guesses.** If the stored baseline is missing or
+  `ntu-kb.filter` changed, the run stops, notifies you, and tells you to
+  `--resync`. Nothing is transferred in that state.
+- **It won't sync over a half-finished commit.** Uncommitted changes to
+  *tracked* files in `03-ntu-kb` or `02-coursework` abort the run; untracked
+  files are ignored, since new PDFs arrive all the time. Override with
+  `--ignore-dirty`.
+- **`.git` is never synced.** Both directories are real repos and a
+  conflict-renamed file inside `.git` would corrupt one.
+- Only one instance runs at a time; logs land in
+  `~/.local/state/obsidian-vault-toolkit/ntu-kb-sync/`.
+
+`--resync` rebuilds the baseline from scratch and is the one operation that can
+discard a device's edits, so it is intentionally **not** exposed as a Raycast
+command. Run it from a terminal, after reading the log that told you to.
+
+The include/exclude list lives in `rclone/ntu-kb.filter`, which is git-ignored
+for the same reason as `config.sh` — an exclude list is a map of your folder
+structure and of what you deliberately keep off the cloud. Copy
+`rclone/ntu-kb.filter.example` and edit it. Comment each rule with *why*:
+bulk you never open on a tablet, machine-written state that would only
+manufacture conflicts, and above all anything holding third-party personal
+data. Conversely, consider *including* large PDFs your `.gitignore` excludes
+for size reasons — those are usually exactly what you want to annotate.
+Editing the filter forces a `--resync` on the next run.
 
 ## Raycast integration
 

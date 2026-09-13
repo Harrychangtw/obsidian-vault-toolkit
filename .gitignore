@@ -2,6 +2,12 @@
 # Anchored to repo root so lib/config.sh (the shared loader) is still tracked.
 /config.sh
 
+# The real bisync filter list: it maps your private folder structure and spells
+# out what you keep off the cloud. Ship ntu-kb.filter.example instead.
+/rclone/ntu-kb.filter
+# Written by rclone bisync itself, to detect when the filter list changes.
+/rclone/ntu-kb.filter.md5
+
 # Python
 __pycache__/
 *.pyc

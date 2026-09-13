@@ -1,0 +1,63 @@
+# rclone filter rules for the two-way KB sync (rclone/ntu_kb_sync.sh).
+#
+# Copy this to `rclone/ntu-kb.filter` and edit it for your own tree. That file
+# is git-ignored, because an exclude list is a map of your folder structure and
+# of what you deliberately keep off the cloud -- not something to publish.
+#
+# Rules are evaluated top to bottom and the FIRST match wins, so every exclude
+# has to precede the catch-all `+ /**` at the bottom. A leading `/` anchors the
+# pattern to the sync root; without one it matches at any depth.
+#
+# IMPORTANT: rclone bisync hashes this file. Editing it puts the next run into a
+# "filters changed" abort that can only be cleared with:
+#     rclone/ntu_kb_sync.sh --resync
+# That is expected, not a bug.
+
+# --- Bulk: not worth pushing to the cloud, and not wanted on a tablet --------
+# Old material you never open on the go. Often already gitignored.
+- /archive/**
+# Scratch space.
+- /99-dump/**
+# Large regenerable corpora (test data, datasets, build inputs).
+# - /path/to/large-test-data/**
+
+# --- Data that must not leave the machine ------------------------------------
+# Anything containing third-party personal data: raw chat exports, class
+# rosters, contact dumps. Exclude these deliberately and keep them excluded.
+# - /path/to/sources/raw/**
+
+# --- Deliberately out of scope ----------------------------------------------
+# Machine-generated state that is rewritten often and never annotated by hand.
+# Syncing it only manufactures conflicts.
+# - /path/to/state/**
+
+# --- Repo and tooling internals ---------------------------------------------
+# If the synced tree is a git repo, never sync .git: bisync writing a
+# conflict-renamed file inside it would corrupt the repo.
+- .git/**
+- .gitignore
+- .gitattributes
+- .claude/**
+- AGENTS.md
+
+# --- Derived files and caches ------------------------------------------------
+- __pycache__/**
+- *.pyc
+- .venv/**
+- node_modules/**
+- .pytest_cache/**
+- .mypy_cache/**
+- *.egg-info/**
+- .DS_Store
+# C compile artifacts.
+- a.out
+- *.o
+- *.dSYM/**
+# Affinity source files: tens of MB each, only the exported PDF matters.
+- *.af
+- *.af~lock~
+
+# --- Everything else syncs both ways ----------------------------------------
+# Consider deliberately INCLUDING large PDFs you want to annotate, even ones
+# your .gitignore excludes for size reasons -- they are the whole point.
++ /**

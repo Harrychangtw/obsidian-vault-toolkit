@@ -69,6 +69,39 @@ if $TMUX has-session -t "$SESSION" 2>/dev/null; then
   exit 0
 fi
 
+# Preflight: rclone must be installed, its config readable by the current user,
+# and the configured remote present. Without this the failure only shows up as
+# N tmux panes that each die instantly with
+#   CRITICAL: Failed to load config file "...": permission denied
+# which is easy to miss behind the pane layout. The usual cause is an earlier
+# `sudo rclone config`, which leaves rclone.conf owned by root.
+preflight() {
+  if ! command -v rclone >/dev/null 2>&1; then
+    echo "[preflight] rclone is not installed or not on PATH." >&2
+    exit 1
+  fi
+
+  local conf remotes
+  conf="$(rclone config file 2>/dev/null | tail -n 1)"
+
+  if ! remotes="$(rclone listremotes 2>&1)"; then
+    echo "[preflight] rclone cannot read its config:" >&2
+    printf '%s\n' "$remotes" | sed 's/^/    /' >&2
+    if [ -n "$conf" ] && [ -e "$conf" ] && [ ! -r "$conf" ]; then
+      echo "[preflight] $conf is not readable by $(whoami). Fix with:" >&2
+      echo "    sudo chown \"$(whoami)\" \"$conf\" && chmod 600 \"$conf\"" >&2
+    fi
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$remotes" | grep -qx "${RCLONE_REMOTE}:"; then
+    echo "[preflight] Remote '${RCLONE_REMOTE}:' is not in $conf. Configured remotes:" >&2
+    printf '%s\n' "$remotes" | sed 's/^/    /' >&2
+    exit 1
+  fi
+}
+preflight
+
 # Build the command list from BACKUP_DIRS: a copy pass and a sync pass each.
 cmds=()
 for dir in "${BACKUP_DIRS[@]}"; do

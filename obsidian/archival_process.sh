@@ -149,13 +149,9 @@ date: ${current_date}
 🌙 One month ago: [[$(date -j -v-30d -f "%Y-%m-%d" "$current_date" "+%Y_%m_%d_%a" 2>/dev/null || echo "")]]
 ⏳ One year ago: [[$(date -j -v-365d -f "%Y-%m-%d" "$current_date" "+%Y_%m_%d_%a" 2>/dev/null || echo "")]]
 
-# 💭 Quote of the day
----
----
-
 # ✅ Things you've done
 ---
-- [x]
+- [ ]
 ---
 
 # 📒 Diary
@@ -556,6 +552,9 @@ update_all_journals() {
         )
     fi
     local today=$(date "+%Y_%m_%d")
+    # Always ensure today's note exists, even on days with no photos/voice memos,
+    # so the reminders step has a note to write into.
+    all_date_folders=$(printf '%s\n%s\n' "$all_date_folders" "$today" | sort -u)
 
     for folder_name in $all_date_folders; do
         if ! [[ "$folder_name" =~ ^[0-9]{4}_[0-9]{2}_[0-9]{2}$ ]]; then

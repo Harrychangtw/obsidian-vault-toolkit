@@ -105,25 +105,19 @@ def extract_wiki_links(content):
     valid_keywords = []
     for match in matches:
         link_path = match[0].strip()  # The actual link path
-        display_text = match[1].strip() if match[1] else None  # Display text if exists
 
-        # Determine the actual keyword name
-        keyword = None
-
-        # If there's a display text, use that as the keyword name
-        if display_text:
-            keyword = display_text
+        # Key the keyword off the link TARGET, never the display text —
+        # [[500 Days of Summer|Summer]] must map to "500 Days of Summer",
+        # otherwise a junk "Summer" page gets created.
+        if link_path.startswith(f'{KEYWORDS_FOLDER_NAME}/'):
+            # Remove the keywords/ prefix
+            keyword = link_path[len(KEYWORDS_FOLDER_NAME) + 1:]
+        elif '/' in link_path:
+            # For other folder structures, take the last part
+            keyword = link_path.split('/')[-1]
         else:
-            # Extract keyword from the link path
-            if link_path.startswith(f'{KEYWORDS_FOLDER_NAME}/'):
-                # Remove the keywords/ prefix
-                keyword = link_path[len(KEYWORDS_FOLDER_NAME) + 1:]
-            elif '/' in link_path:
-                # For other folder structures, take the last part
-                keyword = link_path.split('/')[-1]
-            else:
-                # Simple link without folder
-                keyword = link_path
+            # Simple link without folder
+            keyword = link_path
 
         # Clean up the keyword
         keyword = keyword.strip()
@@ -142,6 +136,8 @@ def extract_context(content, keyword, context_chars=200):
     patterns = [
         # Direct link: [[keyword]]
         r'\[\[' + re.escape(keyword) + r'\]\]',
+        # Link with display text: [[keyword|anything]]
+        r'\[\[' + re.escape(keyword) + r'\|[^\]]+\]\]',
         # Link with display: [[anything|keyword]]
         r'\[\[[^\]|]+\|' + re.escape(keyword) + r'\]\]',
         # Keywords folder link: [[keywords/keyword]]
@@ -214,8 +210,67 @@ def scan_daily_notes(daily_notes_path):
     print(f"   ✅ Processed {processed_files} files, found {len(keyword_data)} unique keywords")
     return keyword_data
 
-def create_keyword_page_content(keyword, data):
-    """Generate standardized content for a keyword page."""
+def canonicalize_keywords(keyword_data, keywords_dir):
+    """Merge case-variant keywords ([[arrival]] vs [[Arrival]]) into one entry.
+
+    Canonical casing is the existing page's filename if one exists, otherwise
+    the most-mentioned variant. Prevents duplicate pages differing only in case.
+    """
+    existing = {}
+    if keywords_dir.exists():
+        for page in keywords_dir.glob("*.md"):
+            existing.setdefault(page.stem.lower(), page.stem)
+
+    groups = defaultdict(list)
+    for kw in keyword_data:
+        groups[kw.lower()].append(kw)
+
+    merged = {}
+    for low, variants in groups.items():
+        canonical = existing.get(low) or max(
+            variants, key=lambda v: len(keyword_data[v]['contexts'])
+        )
+        entry = {'contexts': [], 'dates': [], 'files': []}
+        for v in variants:
+            entry['contexts'].extend(keyword_data[v]['contexts'])
+            entry['dates'].extend(keyword_data[v]['dates'])
+            entry['files'].extend(keyword_data[v]['files'])
+        merged[canonical] = entry
+    return merged
+
+def extract_manual_sections(content):
+    """Pull the manually-maintained sections out of an existing keyword page.
+
+    Returns a dict with 'description', 'related', and 'tags' — each None when
+    the section is absent or still the untouched placeholder.
+    """
+    sections = {}
+
+    def section_body(header):
+        m = re.search(r'^## ' + header + r'\n(.*?)(?=^## |\Z)', content, re.S | re.M)
+        return m.group(1).strip() if m else None
+
+    desc = section_body('Description')
+    if desc and 'Add your description' not in desc:
+        sections['description'] = desc
+
+    related = section_body('Related')
+    if related and re.sub(r'[-\s]', '', related):
+        sections['related'] = related
+
+    tags = section_body('Tags')
+    if tags:
+        sections['tags'] = tags
+
+    return sections
+
+def create_keyword_page_content(keyword, data, preserved=None):
+    """Generate standardized content for a keyword page.
+
+    `preserved` carries manual sections from an existing page (see
+    extract_manual_sections) so a rebuild never wipes hand-written content.
+    """
+    preserved = preserved or {}
 
     # Header
     content = f"# {keyword}\n\n"
@@ -226,9 +281,12 @@ def create_keyword_page_content(keyword, data):
     content += f"**Total mentions**: {len(data['contexts'])}\n"
     content += f"**Appears in**: {len(set(data['files']))} notes\n\n"
 
-    # Description section (to be filled manually)
+    # Description section (preserved if already written by hand)
     content += "## Description\n\n"
-    content += f"*Add your description of {keyword} here.*\n\n"
+    if preserved.get('description'):
+        content += preserved['description'] + "\n\n"
+    else:
+        content += f"*Add your description of {keyword} here.*\n\n"
 
     # Context sections
     if data['contexts']:
@@ -246,13 +304,19 @@ def create_keyword_page_content(keyword, data):
             for context in date_file_contexts[date][:3]:  # Limit to 3 contexts per date
                 content += f"> {context}\n\n"
 
-    # Related section (to be filled manually)
+    # Related section (preserved if already filled by hand)
     content += "## Related\n\n"
-    content += "- \n"  # Empty bullet point for manual filling
+    if preserved.get('related'):
+        content += preserved['related'] + "\n"
+    else:
+        content += "- \n"  # Empty bullet point for manual filling
 
-    # Tags
+    # Tags (preserved if already customized)
     content += "\n## Tags\n\n"
-    content += f"#keyword #{keyword.lower().replace(' ', '_').replace('/', '_')}\n"
+    if preserved.get('tags'):
+        content += preserved['tags'] + "\n"
+    else:
+        content += f"#keyword #{keyword.lower().replace(' ', '_').replace('/', '_')}\n"
 
     return content
 
@@ -272,9 +336,6 @@ def create_keyword_pages(keyword_data, keywords_dir):
 
         keyword_file = keywords_dir / f"{safe_filename}.md"
 
-        # Generate content
-        new_content = create_keyword_page_content(keyword, data)
-
         try:
             if keyword_file.exists():
                 # Check if we should update (compare context count)
@@ -282,12 +343,17 @@ def create_keyword_pages(keyword_data, keywords_dir):
 
                 # Simple heuristic: if new content has more contexts, update
                 if len(data['contexts']) > existing_content.count('> '):
+                    # Carry over hand-written sections so a rebuild never
+                    # wipes Description/Related/Tags.
+                    preserved = extract_manual_sections(existing_content)
+                    new_content = create_keyword_page_content(keyword, data, preserved)
                     keyword_file.write_text(new_content, encoding='utf-8')
                     print(f"   📝 Updated: {keyword}")
                     updated_count += 1
                 else:
                     print(f"   ⏭️  Skipped (no new content): {keyword}")
             else:
+                new_content = create_keyword_page_content(keyword, data)
                 keyword_file.write_text(new_content, encoding='utf-8')
                 print(f"   ✨ Created: {keyword}")
                 created_count += 1
@@ -323,6 +389,9 @@ def main():
     if not keyword_data:
         print("❌ No keywords found in daily notes.")
         return
+
+    # Collapse case-variant keywords into one canonical entry each
+    keyword_data = canonicalize_keywords(keyword_data, keywords_dir)
 
     # Show sample of found keywords
     print("\n📋 Sample keywords found:")

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env -S LC_ALL=en_US.UTF-8 bash
 
 # Required parameters:
 # @raycast.schemaVersion 1
@@ -18,5 +18,6 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 source "$REPO/lib/config.sh"
 
 bash "$REPO/obsidian/archival_process.sh"
+python3 "$REPO/obsidian/reminders_backfill.py"
 python3 "$REPO/obsidian/index_authors.py"
 python3 "$REPO/obsidian/keyword_backfill.py"
